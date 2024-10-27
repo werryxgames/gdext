@@ -39,4 +39,4 @@ pub use bounds::private::Bounds;
 
 // Do not re-export rtti here.
 
-type GdDerefTarget<T> = <<T as Bounds>::Declarer as bounds::Declarer>::DerefTarget<T>;
+pub type GdDerefTarget<T> = <<T as Bounds>::Declarer as bounds::Declarer>::DerefTarget<T>;
