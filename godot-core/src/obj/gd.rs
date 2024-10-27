@@ -100,7 +100,7 @@ pub struct Gd<T: GodotClass> {
     // Hence separate sys() for GDExtensionTypePtr, and obj_sys() for GDExtensionObjectPtr.
     // The former is the standard FFI type, while the latter is used in object-specific GDExtension engines.
     // pub(crate) because accessed in obj::dom
-    pub(crate) raw: RawGd<T>,
+    pub raw: RawGd<T>,
 }
 
 // Size equality check (should additionally be covered by mem::transmute())
