@@ -92,7 +92,7 @@ impl<T: GodotClass> RawGd<T> {
     ///
     /// This does not check if the object is dead, for that use
     /// [`instance_id_or_none()`](Self::instance_id_or_none).
-    pub(crate) fn is_null(&self) -> bool {
+    pub fn is_null(&self) -> bool {
         self.obj.is_null() || self.cached_rtti.is_none()
     }
 
@@ -100,7 +100,7 @@ impl<T: GodotClass> RawGd<T> {
         self.cached_rtti.as_ref().map(|rtti| rtti.instance_id())
     }
 
-    pub(crate) fn is_instance_valid(&self) -> bool {
+    pub fn is_instance_valid(&self) -> bool {
         self.cached_rtti
             .as_ref()
             .map(|rtti| rtti.instance_id().lookup_validity())
