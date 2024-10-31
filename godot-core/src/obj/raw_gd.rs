@@ -28,7 +28,7 @@ use crate::{classes, out};
 #[repr(C)]
 #[doc(hidden)]
 pub struct RawGd<T: GodotClass> {
-    pub(super) obj: *mut T,
+    pub obj: *mut T,
 
     // Must not be changed after initialization.
     cached_rtti: Option<ObjectRtti>,
