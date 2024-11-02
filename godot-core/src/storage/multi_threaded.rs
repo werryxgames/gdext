@@ -66,8 +66,10 @@ unsafe impl<T: GodotClass> Storage for InstanceStorage<T> {
                     Gd<T>::bind() failed, already bound; T = {}.\n  \
                     Make sure to use `self.base_mut()` or `self.base()` instead of `self.to_gd()` when possible.\n  \
                     Details: {err}.\
+                    Backtrace: {}
                 ",
-                type_name::<T>()
+                type_name::<T>(),
+                std::backtrace::Backtrace::force_capture(),
             )
         })
     }
@@ -79,8 +81,10 @@ unsafe impl<T: GodotClass> Storage for InstanceStorage<T> {
                     Gd<T>::bind_mut() failed, already bound; T = {}.\n  \
                     Make sure to use `self.base_mut()` instead of `self.to_gd()` when possible.\n  \
                     Details: {err}.\
+                    Backtrace: {}
                 ",
-                type_name::<T>()
+                type_name::<T>(),
+                std::backtrace::Backtrace::force_capture(),
             )
         })
     }
