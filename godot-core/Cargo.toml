@@ -40,6 +40,8 @@ api-4-2-2 = ["godot-ffi/api-4-2-2"]
 api-4-3 = ["godot-ffi/api-4-3"]
 # ]]
 
+print_bind_mut = []
+
 [dependencies]
 godot-ffi = { path = "../godot-ffi", version = "=0.1.3" }
 

@@ -187,6 +187,17 @@ where
     /// * If there is an ongoing function call from GDScript to Rust, which currently holds a `&T` or `&mut T`
     ///   reference to the user instance. This can happen through re-entrancy (Rust -> GDScript -> Rust call).
     pub fn bind_mut(&mut self) -> GdMut<T> {
+        if cfg!(feature="print_bind_mut") {
+            use crate::godot_print;
+            use std::any::type_name;
+
+            godot_print!(
+                "GDExt: Gd<T>::bind_mut called for T = {}\n{}",
+                type_name::<T>(),
+                std::backtrace::Backtrace::force_capture(),
+            );
+        }
+
         self.raw.bind_mut()
     }
 }
