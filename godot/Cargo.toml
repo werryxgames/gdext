@@ -1,6 +1,6 @@
 [package]
 name = "godot"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.80"
 license = "MPL-2.0"
@@ -10,7 +10,7 @@ description = "Rust bindings for Godot 4"
 authors = ["Bromeon", "godot-rust contributors"]
 repository = "https://github.com/godot-rust/gdext"
 homepage = "https://godot-rust.github.io"
-documentation = "https://docs.rs/godot/0.1.3"
+documentation = "https://docs.rs/godot/0.2.0"
 readme = "crate-readme.md"
 
 [features]
@@ -24,7 +24,7 @@ codegen-rustfmt = ["godot-core/codegen-rustfmt"]
 lazy-function-tables = ["godot-core/codegen-lazy-fptrs"]
 serde = ["godot-core/serde"]
 
-register-docs = ["godot-macros/docs", "godot-core/docs"]
+register-docs = ["godot-macros/register-docs", "godot-core/register-docs"]
 
 api-custom = ["godot-core/api-custom"]
 # [version-sync] [[
@@ -50,8 +50,8 @@ __trace = ["godot-core/trace"]
 print_bind_mut = ["godot-core/print_bind_mut"]
 
 [dependencies]
-godot-core = { path = "../godot-core", version = "=0.1.3" }
-godot-macros = { path = "../godot-macros", version = "=0.1.3" }
+godot-core = { path = "../godot-core", version = "=0.2.0" }
+godot-macros = { path = "../godot-macros", version = "=0.2.0" }
 
 # https://docs.rs/about/metadata
 [package.metadata.docs.rs]
