@@ -6,6 +6,7 @@
  */
 
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
 
 #[cfg(not(feature = "experimental-threads"))]
 use godot_cell::panicking::{GdCell, InaccessibleGuard, MutGuard, RefGuard};
