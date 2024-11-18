@@ -6,7 +6,9 @@
  */
 
 use std::any::type_name;
+use std::backtrace::Backtrace;
 use std::cell;
+use std::sync::Mutex;
 
 #[cfg(not(feature = "experimental-threads"))]
 use godot_cell::panicking::{GdCell, InaccessibleGuard, MutGuard, RefGuard};
@@ -25,6 +27,9 @@ pub struct InstanceStorage<T: GodotClass> {
     // Declared after `user_instance`, is dropped last
     pub(super) lifecycle: cell::Cell<Lifecycle>,
     godot_ref_count: cell::Cell<u32>,
+
+    mut_binder: Mutex<Option<Backtrace>>,
+    const_binders: Mutex<Vec<Backtrace>>,
 }
 
 // SAFETY:
@@ -48,6 +53,8 @@ unsafe impl<T: GodotClass> Storage for InstanceStorage<T> {
             base,
             lifecycle: cell::Cell::new(Lifecycle::Alive),
             godot_ref_count: cell::Cell::new(1),
+            mut_binder: Mutex::new(None),
+            const_binders: Mutex::new(vec![]),
         }
     }
 
@@ -60,33 +67,48 @@ unsafe impl<T: GodotClass> Storage for InstanceStorage<T> {
     }
 
     fn get(&self) -> RefGuard<'_, T> {
-        self.user_instance.borrow().unwrap_or_else(|err| {
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        let value = self.user_instance.borrow().unwrap_or_else(|err| {
             panic!(
                 "\
                     Gd<T>::bind() failed, already bound; T = {}.\n  \
                     Make sure to use `self.base_mut()` or `self.base()` instead of `self.to_gd()` when possible.\n  \
-                    Details: single-threaded, {err}.\
-                    Backtrace: {}
+                    Details: single-threaded, {err}.\n  \
+                    Backtrace: {}\n  \
+                    Mutable binder: {:?}\n  \
                 ",
                 type_name::<T>(),
-                std::backtrace::Backtrace::force_capture(),
+                backtrace,
+                self.mut_binder.lock().unwrap(),
             )
-        })
+        });
+        self.const_binders.lock().unwrap().push(backtrace);
+        value
     }
 
     fn get_mut(&self) -> MutGuard<'_, T> {
-        self.user_instance.borrow_mut().unwrap_or_else(|err| {
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        self.const_binders.lock().unwrap().retain(|_| {
+            self.is_bound()
+        });
+        let value = self.user_instance.borrow_mut().unwrap_or_else(|err| {
             panic!(
                 "\
                     Gd<T>::bind_mut() failed, already bound; T = {}.\n  \
                     Make sure to use `self.base_mut()` instead of `self.to_gd()` when possible.\n  \
-                    Details: single-threaded, {err}.\
-                    Backtrace: {}
+                    Details: single-threaded, {err}.\n  \
+                    Backtrace: {}\n  \
+                    Constant binders: {:?}\n  \
+                    Mutable binder: {:?}\n  \
                 ",
                 type_name::<T>(),
-                std::backtrace::Backtrace::force_capture(),
+                backtrace,
+                self.const_binders.lock().unwrap(),
+                self.mut_binder.lock().unwrap(),
             )
-        })
+        });
+        self.mut_binder.lock().unwrap().replace(backtrace);
+        value
     }
 
     fn get_inaccessible<'a: 'b, 'b>(
