@@ -7,9 +7,12 @@
 
 //! Runtime checks and inspection of Godot classes.
 
-use crate::builtin::GString;
+use crate::builtin::{GString, StringName};
+#[cfg(debug_assertions)]
 use crate::classes::{ClassDb, Object};
-use crate::meta::{CallContext, ClassName};
+use crate::meta::CallContext;
+#[cfg(debug_assertions)]
+use crate::meta::ClassName;
 use crate::obj::{bounds, Bounds, Gd, GodotClass, InstanceId};
 use crate::sys;
 
@@ -19,8 +22,22 @@ pub(crate) fn debug_string<T: GodotClass>(
     ty: &str,
 ) -> std::fmt::Result {
     if let Some(id) = obj.instance_id_or_none() {
-        let class: GString = obj.raw.as_object().get_class();
+        let class: StringName = obj.dynamic_class_string();
         write!(f, "{ty} {{ id: {id}, class: {class} }}")
+    } else {
+        write!(f, "{ty} {{ freed obj }}")
+    }
+}
+
+pub(crate) fn debug_string_with_trait<T: GodotClass>(
+    obj: &Gd<T>,
+    f: &mut std::fmt::Formatter<'_>,
+    ty: &str,
+    trt: &str,
+) -> std::fmt::Result {
+    if let Some(id) = obj.instance_id_or_none() {
+        let class: StringName = obj.dynamic_class_string();
+        write!(f, "{ty} {{ id: {id}, class: {class}, trait: {trt} }}")
     } else {
         write!(f, "{ty} {{ freed obj }}")
     }
@@ -71,16 +88,12 @@ pub(crate) fn ensure_object_alive(
 }
 
 #[cfg(debug_assertions)]
-pub(crate) fn ensure_object_inherits(
-    derived: ClassName,
-    base: ClassName,
-    instance_id: InstanceId,
-) -> bool {
+pub(crate) fn ensure_object_inherits(derived: ClassName, base: ClassName, instance_id: InstanceId) {
     if derived == base
         || base == Object::class_name() // for Object base, anything inherits by definition
         || is_derived_base_cached(derived, base)
     {
-        return true;
+        return;
     }
 
     panic!(

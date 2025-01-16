@@ -94,20 +94,29 @@
 //!
 //! * **`experimental-threads`**
 //!
-//!   Experimental threading support. This enables `Send`/`Sync` traits for `Gd<T>` and makes the guard types `Gd`/`GdMut` aware of
-//!   multithreaded references. The safety aspects are not ironed out yet; there is a high risk of unsoundness at the moment.
+//!   Experimental threading support. This adds synchronization to access the user instance in `Gd<T>` and disables several single-thread checks.
+//!   The safety aspects are not ironed out yet; there is a high risk of unsoundness at the moment.
 //!   As this evolves, it is very likely that the API becomes stricter.<br><br>
 //!
 //! * **`experimental-wasm`**
 //!
 //!   Support for WebAssembly exports is still a work-in-progress and is not yet well tested. This feature is in place for users
-//!   to explicitly opt in to any instabilities or rough edges that may result. Due to a limitation in Godot, it might currently not
-//!   work Firefox browser.<br><br>
+//!   to explicitly opt in to any instabilities or rough edges that may result.
+//!
+//!   By default, Wasm threads are enabled and require the flag `"-C", "link-args=-sUSE_PTHREADS=1"` in the `wasm32-unknown-unknown` target.
+//!   This must be kept in sync with Godot's Web export settings (threading support enabled). To disable it, use **additionally* the feature
+//!   `experimental-wasm-nothreads`.<br><br>
+//!
+//! * **`experimental-wasm-nothreads`**
+//!
+//!   Requires the `experimental-wasm` feature. Disables threading support for WebAssembly exports. This needs to be kept in sync with
+//!   Godot's Web export setting (threading support disabled), and must _not_ use the `"-C", "link-args=-sUSE_PTHREADS=1"` flag in the
+//!   `wasm32-unknown-unknown` target.<br><br>
 //!
 //! * **`codegen-rustfmt`**
 //!
 //!   Use rustfmt to format generated binding code. Because rustfmt is so slow, this is detrimental to initial compile time.
-//!   Without it, we use a lightweight and fast custom formatter to enable basic human readability.
+//!   Without it, we use a lightweight and fast custom formatter to enable basic human readability.<br><br>
 //!
 //! * **`register-docs`**
 //!
@@ -175,7 +184,7 @@ pub mod init {
 /// Register/export Rust symbols to Godot: classes, methods, enums...
 pub mod register {
     pub use godot_core::registry::property;
-    pub use godot_macros::{godot_api, Export, GodotClass, GodotConvert, Var};
+    pub use godot_macros::{godot_api, godot_dyn, Export, GodotClass, GodotConvert, Var};
 
     #[cfg(feature = "__codegen-full")]
     pub use godot_core::registry::RpcConfig;

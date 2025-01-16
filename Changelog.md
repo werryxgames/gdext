@@ -10,8 +10,69 @@ Cutting-edge API docs of the `master` branch are available [here](https://godot-
 
 ## Quick navigation
 
-- [v0.2.0](#v020)
+- [v0.2.0](#v020), [v0.2.1](#v021), [v0.2.2](#v022)
 - [v0.1.1](#v011), [v0.1.2](#v012), [v0.1.3](#v013)
+
+
+## [v0.2.2](https://docs.rs/godot/0.2.2)
+
+_31 December 2024_
+
+### 🌻 Features
+
+- Feature parity with Godot builtin types
+  - `Vector2i` ([#978](https://github.com/godot-rust/gdext/pull/978))
+  - `Projection` ([#983](https://github.com/godot-rust/gdext/pull/983))
+  - `Callable` ([#979](https://github.com/godot-rust/gdext/pull/979))
+  - `Quaternion` ([#981](https://github.com/godot-rust/gdext/pull/981))
+  - `GString` + `StringName` ([#980](https://github.com/godot-rust/gdext/pull/980))
+  - `NodePath` ([#982](https://github.com/godot-rust/gdext/pull/982))
+  - `PackedByteArray` ([#994](https://github.com/godot-rust/gdext/pull/994))
+- Support static functions in `Callable` ([#989](https://github.com/godot-rust/gdext/pull/989))
+- Codegen can directly expose `Inner*` builtin methods ([#976](https://github.com/godot-rust/gdext/pull/976))
+- Generate builtin methods with varargs ([#977](https://github.com/godot-rust/gdext/pull/977))
+
+### 🧹 Quality of life
+
+- More accurately provide spans to errors in the `GodotClass` macro ([#920](https://github.com/godot-rust/gdext/pull/920))
+- Improve some proc-macro attribute error messages ([#971](https://github.com/godot-rust/gdext/pull/971))
+- Add required virtual method `IScriptInstance::get_doc_class_name()` in test ([#975](https://github.com/godot-rust/gdext/pull/975))
+- Clean up `Callable` + tests, fix `check.sh test` ([#990](https://github.com/godot-rust/gdext/pull/990))
+
+### 📚 Documentation
+
+- Improve docs in `DynGd` (re-enrichment) + Cargo features ([#969](https://github.com/godot-rust/gdext/pull/969))
+
+
+## [v0.2.1](https://docs.rs/godot/0.2.1)
+
+_8 December 2024_
+
+### 🌻 Features
+
+- `#[godot_api(secondary)]` for multiple impl blocks ([#927](https://github.com/godot-rust/gdext/pull/927))
+- `DynGd<T, D>` smart pointer for Rust-side dynamic dispatch ([#953](https://github.com/godot-rust/gdext/pull/953), [#958](https://github.com/godot-rust/gdext/pull/958))
+- `Callable::from_local_fn()` + `Callable::from_sync_fn()` ([#965](https://github.com/godot-rust/gdext/pull/965))
+- Add `Variant::object_id()` ([#914](https://github.com/godot-rust/gdext/pull/914))
+
+### 🧹 Quality of life
+
+- `#[gdextension]` macro: rename `entry_point` -> `entry_symbol` and write docs ([#959](https://github.com/godot-rust/gdext/pull/959))
+- Use `GDExtensionCallableCustomInfo2` instead of deprecated `GDExtensionCallableCustomInfo` ([#952](https://github.com/godot-rust/gdext/pull/952))
+- `sys::short_type_name`, conversions and relaxed `GodotType` ([#957](https://github.com/godot-rust/gdext/pull/957))
+- Clippy (elided lifetimes) + rustfmt ([#956](https://github.com/godot-rust/gdext/pull/956))
+- Add test verifying that custom callables don't crash when `Err` is returned ([#950](https://github.com/godot-rust/gdext/pull/950))
+- Minor signal cleanup; prevent `#[signal]` from being used in secondary impl blocks ([#964](https://github.com/godot-rust/gdext/pull/964))
+
+### 🛠️ Bugfixes
+
+- Fix `#[godot_dyn]` causing error when implemented for two traits ([#962](https://github.com/godot-rust/gdext/pull/962))
+- Prevent abort on double-panic if single-threading check fails ([#965](https://github.com/godot-rust/gdext/pull/965))
+
+### 📚 Documentation
+
+- `#[gdextension]` macro: rename `entry_point` -> `entry_symbol` and write docs ([#959](https://github.com/godot-rust/gdext/pull/959))
+- Helpful doc aliases: `func`, `var`, `init`, .. ([#960](https://github.com/godot-rust/gdext/pull/960))
 
 
 ## [v0.2.0](https://docs.rs/godot/0.2.0)

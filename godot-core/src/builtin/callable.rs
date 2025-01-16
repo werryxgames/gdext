@@ -7,14 +7,19 @@
 
 use godot_ffi as sys;
 
-use crate::builtin::{inner, StringName, Variant, VariantArray};
-use crate::classes::Object;
-use crate::meta::{CallContext, GodotType, ToGodot};
+use crate::builtin::{inner, GString, StringName, Variant, VariantArray};
+use crate::classes;
+use crate::meta::{GodotType, ToGodot};
 use crate::obj::bounds::DynMemory;
 use crate::obj::Bounds;
 use crate::obj::{Gd, GodotClass, InstanceId};
 use std::{fmt, ptr};
 use sys::{ffi_methods, GodotFfi};
+
+#[cfg(all(since_api = "4.2", before_api = "4.3"))]
+type CallableCustomInfo = sys::GDExtensionCallableCustomInfo;
+#[cfg(since_api = "4.3")]
+type CallableCustomInfo = sys::GDExtensionCallableCustomInfo2;
 
 /// A `Callable` represents a function in Godot.
 ///
@@ -38,7 +43,7 @@ impl Callable {
         Self { opaque }
     }
 
-    /// Create a callable for the method `object::method_name`.
+    /// Create a callable for the non-static method `object.method_name`.
     ///
     /// See also [`Gd::callable()`].
     ///
@@ -60,9 +65,58 @@ impl Callable {
         }
     }
 
+    /// Create a callable for the static method `class_name::function` (single-threaded).
+    ///
+    /// Allows you to call static functions through `Callable`.
+    ///
+    /// Note that due to varying support across different engine versions, the resulting `Callable` has unspecified behavior for
+    /// methods such as [`method_name()`][Self::method_name], [`object()`][Self::object], [`object_id()`][Self::object_id] or
+    /// [`get_argument_count()`][Self::arg_len] among others. It is recommended to only use this for calling the function.
+    pub fn from_local_static(
+        class_name: impl meta::AsArg<StringName>,
+        function_name: impl meta::AsArg<StringName>,
+    ) -> Self {
+        meta::arg_into_owned!(class_name);
+        meta::arg_into_owned!(function_name);
+
+        // Modern implementation: use ClassDb::class_call_static().
+        #[cfg(since_api = "4.4")]
+        {
+            let callable_name = format!("{class_name}.{function_name}");
+
+            Self::from_local_fn(&callable_name, move |args| {
+                let args = args.iter().cloned().cloned().collect::<Vec<_>>();
+
+                let result: Variant = classes::ClassDb::singleton().class_call_static(
+                    &class_name,
+                    &function_name,
+                    args.as_slice(),
+                );
+                Ok(result)
+            })
+        }
+
+        // Polyfill for <= Godot 4.3: use GDScript expressions.
+        #[cfg(before_api = "4.4")]
+        {
+            use crate::obj::NewGd;
+
+            let code = format!(
+                "static func __callable():\n\treturn Callable({class_name}, \"{function_name}\")"
+            );
+
+            let mut script = classes::GDScript::new_gd();
+            script.set_source_code(&code);
+            script.reload();
+
+            let callable = script.call("__callable", &[]);
+            callable.to()
+        }
+    }
+
     #[cfg(since_api = "4.2")]
-    fn default_callable_custom_info() -> sys::GDExtensionCallableCustomInfo {
-        sys::GDExtensionCallableCustomInfo {
+    fn default_callable_custom_info() -> CallableCustomInfo {
+        CallableCustomInfo {
             callable_userdata: ptr::null_mut(),
             token: ptr::null_mut(),
             object_id: 0,
@@ -74,46 +128,80 @@ impl Callable {
             // Op < is only used in niche scenarios and default is usually good enough, see https://github.com/godotengine/godot/issues/81901.
             less_than_func: None,
             to_string_func: None,
+            #[cfg(since_api = "4.3")]
+            get_argument_count_func: None,
         }
     }
 
-    /// Create a callable from a Rust function or closure.
+    /// Create callable from **single-threaded** Rust function or closure.
     ///
     /// `name` is used for the string representation of the closure, which helps debugging.
     ///
-    /// Callables created through multiple `from_fn()` calls are never equal, even if they refer to the same function. If you want to use
-    /// equality, either clone an existing `Callable` instance, or define your own `PartialEq` impl with [`Callable::from_custom`].
+    /// This constructor only allows the callable to be invoked from the same thread as creating it. If you need to invoke it from any thread,
+    /// use [`from_sync_fn`][Self::from_sync_fn] instead (requires crate feature `experimental-threads`; only enable if really needed).
+    #[cfg(since_api = "4.2")]
+    pub fn from_local_fn<F, S>(name: S, rust_function: F) -> Self
+    where
+        F: 'static + FnMut(&[&Variant]) -> Result<Variant, ()>,
+        S: meta::AsArg<GString>,
+    {
+        meta::arg_into_owned!(name);
+
+        Self::from_fn_wrapper(FnWrapper {
+            rust_function,
+            name,
+            thread_id: Some(std::thread::current().id()),
+        })
+    }
+
+    /// Create callable from **thread-safe** Rust function or closure.
+    ///
+    /// `name` is used for the string representation of the closure, which helps debugging.
+    ///
+    /// This constructor requires `Send` + `Sync` bound and allows the callable to be invoked from any thread. If you guarantee that you invoke
+    /// it from the same thread as creating it, use [`from_local_fn`][Self::from_local_fn] instead.
+    ///
+    /// Callables created through multiple `from_local_fn` or `from_sync_fn()` calls are never equal, even if they refer to the same function.
+    /// If you want to use equality, either clone an existing `Callable` instance, or define your own `PartialEq` impl with
+    /// [`Callable::from_custom`].
     ///
     /// # Example
     /// ```no_run
     /// # use godot::prelude::*;
-    /// let callable = Callable::from_fn("sum", |args: &[&Variant]| {
+    /// let callable = Callable::from_sync_fn("sum", |args: &[&Variant]| {
     ///     let sum: i32 = args.iter().map(|arg| arg.to::<i32>()).sum();
     ///     Ok(sum.to_variant())
     /// });
     /// ```
     #[cfg(since_api = "4.2")]
+    #[cfg(feature = "experimental-threads")]
+    pub fn from_sync_fn<F, S>(name: S, rust_function: F) -> Self
+    where
+        F: 'static + Send + Sync + FnMut(&[&Variant]) -> Result<Variant, ()>,
+        S: meta::AsArg<GString>,
+    {
+        meta::arg_into_owned!(name);
+
+        Self::from_fn_wrapper(FnWrapper {
+            rust_function,
+            name,
+            thread_id: None,
+        })
+    }
+
+    #[deprecated = "Now split into from_local_fn (single-threaded) and from_sync_fn (multi-threaded)."]
+    #[cfg(since_api = "4.2")]
     pub fn from_fn<F, S>(name: S, rust_function: F) -> Self
     where
         F: 'static + Send + Sync + FnMut(&[&Variant]) -> Result<Variant, ()>,
-        S: Into<crate::builtin::GString>,
+        S: Into<GString>,
     {
-        let userdata = CallableUserdata {
-            inner: FnWrapper {
-                rust_function,
-                name: name.into(),
-            },
-        };
-
-        let info = sys::GDExtensionCallableCustomInfo {
-            callable_userdata: Box::into_raw(Box::new(userdata)) as *mut std::ffi::c_void,
-            call_func: Some(rust_callable_call_fn::<F>),
-            free_func: Some(rust_callable_destroy::<FnWrapper<F>>),
-            to_string_func: Some(rust_callable_to_string_named::<F>),
-            ..Self::default_callable_custom_info()
-        };
-
-        Self::from_custom_info(info)
+        // Do not call from_sync_fn() since that is feature-gated, but this isn't due to compatibility.
+        Self::from_fn_wrapper(FnWrapper {
+            rust_function,
+            name: name.into(),
+            thread_id: None,
+        })
     }
 
     /// Create a highly configurable callable from Rust.
@@ -126,7 +214,7 @@ impl Callable {
         // - a type-erased workaround for PartialEq supertrait (which has a `Self` type parameter and thus is not object-safe)
         let userdata = CallableUserdata { inner: callable };
 
-        let info = sys::GDExtensionCallableCustomInfo {
+        let info = CallableCustomInfo {
             callable_userdata: Box::into_raw(Box::new(userdata)) as *mut std::ffi::c_void,
             call_func: Some(rust_callable_call_custom::<C>),
             free_func: Some(rust_callable_destroy::<C>),
@@ -140,11 +228,36 @@ impl Callable {
     }
 
     #[cfg(since_api = "4.2")]
-    fn from_custom_info(mut info: sys::GDExtensionCallableCustomInfo) -> Callable {
+    fn from_fn_wrapper<F>(inner: FnWrapper<F>) -> Self
+    where
+        F: FnMut(&[&Variant]) -> Result<Variant, ()>,
+    {
+        let userdata = CallableUserdata { inner };
+
+        let info = CallableCustomInfo {
+            callable_userdata: Box::into_raw(Box::new(userdata)) as *mut std::ffi::c_void,
+            call_func: Some(rust_callable_call_fn::<F>),
+            free_func: Some(rust_callable_destroy::<FnWrapper<F>>),
+            to_string_func: Some(rust_callable_to_string_named::<F>),
+            ..Self::default_callable_custom_info()
+        };
+
+        Self::from_custom_info(info)
+    }
+
+    #[cfg(since_api = "4.2")]
+    fn from_custom_info(mut info: CallableCustomInfo) -> Callable {
         // SAFETY: callable_custom_create() is a valid way of creating callables.
         unsafe {
             Callable::new_with_uninit(|type_ptr| {
-                sys::interface_fn!(callable_custom_create)(type_ptr, ptr::addr_of_mut!(info))
+                #[cfg(before_api = "4.3")]
+                {
+                    sys::interface_fn!(callable_custom_create)(type_ptr, ptr::addr_of_mut!(info))
+                }
+                #[cfg(since_api = "4.3")]
+                {
+                    sys::interface_fn!(callable_custom_create2)(type_ptr, ptr::addr_of_mut!(info))
+                }
             })
         }
     }
@@ -194,6 +307,7 @@ impl Callable {
     /// _Godot equivalent: `get_method`_
     ///
     /// [godot#73052]: https://github.com/godotengine/godot/issues/73052
+    #[doc(alias = "get_method")]
     pub fn method_name(&self) -> Option<StringName> {
         let method_name = self.as_inner().get_method();
         if method_name.is_empty() {
@@ -205,15 +319,15 @@ impl Callable {
 
     /// Returns the object on which this callable is called.
     ///
-    /// Returns `None` when this callable doesn't have any target object to call a method on, regardless of
-    /// if the method exists for that target or not.
+    /// Returns `None` when this callable doesn't have any target object to call a method on (regardless of whether the method exists for that
+    /// target or not). Also returns `None` if the object is dead. You can differentiate these two cases using [`object_id()`][Self::object_id].
     ///
     /// _Godot equivalent: `get_object`_
-    pub fn object(&self) -> Option<Gd<Object>> {
+    pub fn object(&self) -> Option<Gd<classes::Object>> {
         // Increment refcount because we're getting a reference, and `InnerCallable::get_object` doesn't
         // increment the refcount.
         self.as_inner().get_object().map(|mut object| {
-            <Object as Bounds>::DynMemory::maybe_inc_ref(&mut object.raw);
+            <classes::Object as Bounds>::DynMemory::maybe_inc_ref(&mut object.raw);
             object
         })
     }
@@ -221,6 +335,8 @@ impl Callable {
     /// Returns the ID of this callable's object, see also [`Gd::instance_id`].
     ///
     /// Returns `None` when this callable doesn't have any target to call a method on.
+    ///
+    /// If the pointed-to object is dead, the ID will still be returned. Use [`object()`][Self::object] to check for liveness.
     ///
     /// _Godot equivalent: `get_object_id`_
     pub fn object_id(&self) -> Option<InstanceId> {
@@ -269,6 +385,30 @@ impl Callable {
         self.as_inner().is_valid()
     }
 
+    /// Returns a copy of the callable, ignoring `args` user arguments.
+    ///
+    /// Despite its name, this does **not** directly undo previous `bind()` calls. See
+    /// [Godot docs](https://docs.godotengine.org/en/latest/classes/class_callable.html#class-callable-method-unbind) for up-to-date semantics.
+    pub fn unbind(&self, args: usize) -> Callable {
+        self.as_inner().unbind(args as i64)
+    }
+
+    #[cfg(since_api = "4.3")]
+    pub fn get_argument_count(&self) -> usize {
+        self.as_inner().get_argument_count() as usize
+    }
+
+    /// Get number of bound arguments.
+    ///
+    /// Note: for Godot < 4.4, this function returns incorrect results when applied on a callable that used `unbind()`.
+    /// See [#98713](https://github.com/godotengine/godot/pull/98713) for details.
+    pub fn get_bound_arguments_count(&self) -> usize {
+        // This does NOT fix the bug before Godot 4.4, just cap it at zero. unbind() will still erroneously decrease the bound arguments count.
+        let alleged_count = self.as_inner().get_bound_arguments_count();
+
+        alleged_count.max(0) as usize
+    }
+
     #[doc(hidden)]
     pub fn as_inner(&self) -> inner::InnerCallable {
         inner::InnerCallable::from_outer(self)
@@ -314,7 +454,7 @@ unsafe impl GodotFfi for Callable {
     }
 }
 
-crate::meta::impl_godot_as_self!(Callable);
+meta::impl_godot_as_self!(Callable);
 
 impl fmt::Debug for Callable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -349,6 +489,7 @@ mod custom_callable {
     use super::*;
     use crate::builtin::GString;
     use std::hash::Hash;
+    use std::thread::ThreadId;
 
     pub struct CallableUserdata<T> {
         pub inner: T,
@@ -364,8 +505,11 @@ mod custom_callable {
     }
 
     pub(crate) struct FnWrapper<F> {
-        pub(crate) rust_function: F,
-        pub(crate) name: GString,
+        pub(super) rust_function: F,
+        pub(super) name: GString,
+
+        /// `None` if the callable is multi-threaded ([`Callable::from_sync_fn`]).
+        pub(super) thread_id: Option<ThreadId>,
     }
 
     /// Represents a custom callable object defined in Rust.
@@ -397,13 +541,13 @@ mod custom_callable {
             let c: &C = CallableUserdata::inner_from_raw(callable_userdata);
             c.to_string()
         };
-        let ctx = CallContext::custom_callable(name.as_str());
+        let ctx = meta::CallContext::custom_callable(name.as_str());
 
         crate::private::handle_varcall_panic(&ctx, &mut *r_error, move || {
             // Get the RustCallable again inside closure so it doesn't have to be UnwindSafe.
             let c: &mut C = CallableUserdata::inner_from_raw(callable_userdata);
             let result = c.invoke(arg_refs);
-            crate::meta::varcall_return_checked(result, r_return, r_error);
+            meta::varcall_return_checked(result, r_return, r_error);
             Ok(())
         });
     }
@@ -423,13 +567,26 @@ mod custom_callable {
             let w: &FnWrapper<F> = CallableUserdata::inner_from_raw(callable_userdata);
             w.name.to_string()
         };
-        let ctx = CallContext::custom_callable(name.as_str());
+        let ctx = meta::CallContext::custom_callable(name.as_str());
 
         crate::private::handle_varcall_panic(&ctx, &mut *r_error, move || {
             // Get the FnWrapper again inside closure so the FnMut doesn't have to be UnwindSafe.
             let w: &mut FnWrapper<F> = CallableUserdata::inner_from_raw(callable_userdata);
+
+            if w.thread_id
+                .is_some_and(|tid| tid != std::thread::current().id())
+            {
+                // NOTE: this panic is currently not propagated to the caller, but results in an error message and Nil return.
+                // See comments in itest callable_call() for details.
+                panic!(
+                    "Callable '{}' created with from_local_fn() must be called from the same thread it was created in.\n\
+                    If you need to call it from any thread, use from_sync_fn() instead (requires `experimental-threads` feature).",
+                    w.name
+                );
+            }
+
             let result = (w.rust_function)(arg_refs);
-            crate::meta::varcall_return_checked(result, r_return, r_error);
+            meta::varcall_return_checked(result, r_return, r_error);
             Ok(())
         });
     }

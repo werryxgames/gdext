@@ -357,7 +357,7 @@ impl BuiltinMethod {
                 parameters: FnParam::new_range_no_defaults(&method.arguments, ctx),
                 return_value: FnReturn::new(&return_value, ctx),
                 is_vararg: method.is_vararg,
-                is_private: special_cases::is_method_private(builtin_name, &method.name),
+                is_private: false, // See 'exposed' below. Could be special_cases::is_method_private(builtin_name, &method.name),
                 is_virtual_required: false,
                 direction: FnDirection::Outbound {
                     hash: method.hash.expect("hash absent for builtin method"),
@@ -365,6 +365,10 @@ impl BuiltinMethod {
             },
             qualifier: FnQualifier::from_const_static(method.is_const, method.is_static),
             surrounding_class: inner_class_name.clone(),
+            is_exposed_in_outer: special_cases::is_builtin_method_exposed(
+                builtin_name,
+                &method.name,
+            ),
         })
     }
 }
@@ -420,7 +424,7 @@ impl ClassMethod {
             "hash present for virtual class method"
         );
 
-        let rust_method_name = Self::make_virtual_method_name(&method.name);
+        let rust_method_name = Self::make_virtual_method_name(class_name, &method.name);
 
         Self::from_json_inner(
             method,
@@ -488,13 +492,13 @@ impl ClassMethod {
         })
     }
 
-    fn make_virtual_method_name(godot_method_name: &str) -> &str {
+    fn make_virtual_method_name<'m>(class_name: &TyName, godot_method_name: &'m str) -> &'m str {
         // Remove leading underscore from virtual method names.
         let method_name = godot_method_name
             .strip_prefix('_')
             .unwrap_or(godot_method_name);
 
-        special_cases::maybe_rename_virtual_method(method_name)
+        special_cases::maybe_rename_virtual_method(class_name, method_name)
     }
 }
 

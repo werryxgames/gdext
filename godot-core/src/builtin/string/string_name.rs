@@ -10,8 +10,9 @@ use std::fmt;
 use godot_ffi as sys;
 use sys::{ffi_methods, GodotFfi};
 
-use crate::builtin::inner;
-use crate::builtin::{GString, NodePath};
+use crate::builtin::{inner, GString, NodePath, Variant};
+use crate::meta::AsArg;
+use crate::{impl_shared_string_api, meta};
 
 /// A string optimized for unique names.
 ///
@@ -44,6 +45,10 @@ use crate::builtin::{GString, NodePath};
 /// | General purpose   | [`GString`][crate::builtin::GString]       |
 /// | Interned names    | **`StringName`**                           |
 /// | Scene-node paths  | [`NodePath`][crate::builtin::NodePath]     |
+///
+/// # Godot docs
+///
+/// [`StringName` (stable)](https://docs.godotengine.org/en/stable/classes/class_stringname.html)
 // Currently we rely on `transparent` for `borrow_string_sys`.
 #[repr(transparent)]
 pub struct StringName {
@@ -55,19 +60,12 @@ impl StringName {
         Self { opaque }
     }
 
-    /// Returns the number of characters in the string.
+    /// Number of characters in the string.
     ///
     /// _Godot equivalent: `length`_
     #[doc(alias = "length")]
     pub fn len(&self) -> usize {
         self.as_inner().length() as usize
-    }
-
-    /// Returns `true` if this is the empty string.
-    ///
-    /// _Godot equivalent: `is_empty`_
-    pub fn is_empty(&self) -> bool {
-        self.as_inner().is_empty()
     }
 
     /// Returns a 32-bit integer hash value representing the string.
@@ -78,7 +76,7 @@ impl StringName {
             .expect("Godot hashes are uint32_t")
     }
 
-    crate::meta::declare_arg_method! {
+    meta::declare_arg_method! {
         /// Use as argument for an [`impl AsArg<GString|NodePath>`][crate::meta::AsArg] parameter.
         ///
         /// This is a convenient way to convert arguments of similar string types.
@@ -186,7 +184,7 @@ unsafe impl GodotFfi for StringName {
     ffi_methods! { type sys::GDExtensionTypePtr = *mut Opaque; .. }
 }
 
-crate::meta::impl_godot_as_self!(StringName);
+meta::impl_godot_as_self!(StringName);
 
 impl_builtin_traits! {
     for StringName {
@@ -198,6 +196,12 @@ impl_builtin_traits! {
         // (based on pointers). See transient_ord() method.
         Hash;
     }
+}
+
+impl_shared_string_api! {
+    builtin: StringName,
+    find_builder: ExStringNameFind,
+    split_builder: ExStringNameSplit,
 }
 
 impl fmt::Display for StringName {
@@ -344,22 +348,21 @@ impl From<&'static std::ffi::CStr> for StringName {
 /// See [`StringName::transient_ord()`].
 pub struct TransientStringNameOrd<'a>(&'a StringName);
 
-impl<'a> PartialEq for TransientStringNameOrd<'a> {
+impl PartialEq for TransientStringNameOrd<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
     }
 }
 
-impl<'a> Eq for TransientStringNameOrd<'a> {}
+impl Eq for TransientStringNameOrd<'_> {}
 
-impl<'a> PartialOrd for TransientStringNameOrd<'a> {
+impl PartialOrd for TransientStringNameOrd<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-// implement Ord like above
-impl<'a> Ord for TransientStringNameOrd<'a> {
+impl Ord for TransientStringNameOrd<'_> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // SAFETY: builtin operator provided by Godot.
         let op_less = |lhs, rhs| unsafe {
@@ -421,7 +424,7 @@ mod serialize {
             D: Deserializer<'de>,
         {
             struct StringNameVisitor;
-            impl<'de> Visitor<'de> for StringNameVisitor {
+            impl Visitor<'_> for StringNameVisitor {
                 type Value = StringName;
 
                 fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {

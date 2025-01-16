@@ -176,10 +176,20 @@ pub(crate) enum FromGodotError {
     },
 
     /// Special case of `BadArrayType` where a custom int type such as `i8` cannot hold a dynamic `i64` value.
+    #[cfg(debug_assertions)]
     BadArrayTypeInt { expected: ArrayTypeInfo, value: i64 },
 
     /// InvalidEnum is also used by bitfields.
     InvalidEnum,
+
+    /// Cannot map object to `dyn Trait` because none of the known concrete classes implements it.
+    UnimplementedDynTrait {
+        trait_name: String,
+        class_name: String,
+    },
+
+    /// Cannot map object to `dyn Trait` because none of the known concrete classes implements it.
+    UnregisteredDynTrait { trait_name: String },
 
     /// `InstanceId` cannot be 0.
     ZeroInstanceId,
@@ -227,6 +237,7 @@ impl fmt::Display for FromGodotError {
                     "expected array of class {exp_class}, got array of class {act_class}"
                 )
             }
+            #[cfg(debug_assertions)]
             Self::BadArrayTypeInt { expected, value } => {
                 write!(
                     f,
@@ -235,6 +246,21 @@ impl fmt::Display for FromGodotError {
             }
             Self::InvalidEnum => write!(f, "invalid engine enum value"),
             Self::ZeroInstanceId => write!(f, "`InstanceId` cannot be 0"),
+            Self::UnimplementedDynTrait {
+                trait_name,
+                class_name,
+            } => {
+                write!(
+                    f,
+                    "none of the classes derived from `{class_name}` have been linked to trait `{trait_name}` with #[godot_dyn]"
+                )
+            }
+            FromGodotError::UnregisteredDynTrait { trait_name } => {
+                write!(
+                    f,
+                    "trait `{trait_name}` has not been registered with #[godot_dyn]"
+                )
+            }
         }
     }
 }
@@ -313,11 +339,11 @@ impl fmt::Display for FromVariantError {
         match self {
             Self::BadType { expected, actual } => {
                 // Note: wording is the same as in CallError::failed_param_conversion_engine()
-                write!(f, "expected type {expected:?}, got {actual:?}")
+                write!(f, "cannot convert from {actual:?} to {expected:?}")
             }
             Self::BadValue => write!(f, "value cannot be represented in target type's domain"),
             Self::WrongClass { expected } => {
-                write!(f, "expected class {expected}")
+                write!(f, "cannot convert to class {expected}")
             }
         }
     }

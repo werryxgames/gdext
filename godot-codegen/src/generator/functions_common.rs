@@ -43,6 +43,7 @@ pub struct FnCode {
     pub varcall_invocation: TokenStream,
     pub ptrcall_invocation: TokenStream,
     pub is_virtual_required: bool,
+    pub is_varcall_fallible: bool,
 }
 
 pub struct FnDefinition {
@@ -79,11 +80,11 @@ impl FnDefinitions {
         // Collect needed because borrowed by 2 closures
         let definitions: Vec<_> = definitions.collect();
         let functions = definitions.iter().map(|def| &def.functions);
-        let structs = definitions.iter().map(|def| &def.builders);
+        let builder_structs = definitions.iter().map(|def| &def.builders);
 
         FnDefinitions {
             functions: quote! { #( #functions )* },
-            builders: quote! { #( #structs )* },
+            builders: quote! { #( #builder_structs )* },
         }
     }
 }
@@ -207,7 +208,7 @@ pub fn make_function_definition(
         let varcall_invocation = &code.varcall_invocation;
 
         // TODO Utility functions: update as well.
-        if code.receiver.param.is_empty() {
+        if !code.is_varcall_fallible {
             quote! {
                 #maybe_safety_doc
                 #vis #maybe_unsafe fn #primary_fn_name (

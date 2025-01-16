@@ -9,7 +9,7 @@ pub use crate::gen::classes::class_macros;
 pub use crate::obj::rtti::ObjectRtti;
 pub use crate::registry::callbacks;
 pub use crate::registry::plugin::{
-    ClassPlugin, ErasedRegisterFn, ErasedRegisterRpcsFn, InherentImpl, PluginItem,
+    ClassPlugin, ErasedDynGd, ErasedRegisterFn, ErasedRegisterRpcsFn, InherentImpl, PluginItem,
 };
 pub use crate::storage::{as_storage, Storage};
 pub use sys::out;
@@ -21,8 +21,11 @@ use crate::global::godot_error;
 use crate::meta::error::CallError;
 use crate::meta::CallContext;
 use crate::sys;
-use std::sync::{atomic, Arc, Mutex};
+use std::sync::atomic;
+#[cfg(debug_assertions)]
+use std::sync::{Arc, Mutex};
 use sys::Global;
+
 // ----------------------------------------------------------------------------------------------------------------------------------------------
 // Global variables
 
@@ -411,6 +414,7 @@ where
 
             #[cfg(not(debug_assertions))]
             {
+                let _ = error_context; // Unused warning.
                 let msg = extract_panic_message(err);
                 let msg = format_panic_message(msg);
 
