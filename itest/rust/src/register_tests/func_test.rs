@@ -79,7 +79,7 @@ struct GdSelfObj {
 #[godot_api]
 impl GdSelfObj {
     // A signal that will be looped back to update_internal through gdscript.
-    #[signal]
+    #[signal(__no_builder)]
     fn update_internal_signal(new_internal: i32);
 
     #[func]
@@ -126,6 +126,22 @@ impl GdSelfObj {
 
     #[func]
     #[cfg(any())]
+    fn cfg_removes_duplicate_function_impl() -> bool {
+        compile_error!("Removed by #[cfg]")
+    }
+
+    // Why `panic = "abort"`: we need a condition that always evaluates to true, and #[cfg_attr(true)] is still experimental.
+    // (https://github.com/rust-lang/rust/issues/131204)
+    #[cfg_attr(any(panic = "abort", panic = "unwind"), cfg(any()))]
+    #[func]
+    fn cfg_removes_duplicate_function_impl() -> bool {
+        compile_error!("Removed by #[cfg]")
+    }
+
+    #[func]
+    // Why `panic = "abort"`: we need a condition that always evaluates to true, and #[cfg_attr(true)] is still experimental.
+    // (https://github.com/rust-lang/rust/issues/131204)
+    #[cfg_attr(any(panic = "abort", panic = "unwind"), cfg(any()))]
     fn cfg_removes_duplicate_function_impl() -> bool {
         compile_error!("Removed by #[cfg]")
     }

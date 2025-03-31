@@ -8,14 +8,16 @@
 use crate::context::Context;
 use crate::models::domain::{
     BuildConfiguration, BuiltinClass, BuiltinMethod, BuiltinSize, BuiltinVariant, Class,
-    ClassCommons, ClassConstant, ClassConstantValue, ClassMethod, Constructor, Enum, Enumerator,
-    EnumeratorValue, ExtensionApi, FnDirection, FnParam, FnQualifier, FnReturn, FunctionCommon,
-    GodotApiVersion, ModName, NativeStructure, Operator, Singleton, TyName, UtilityFunction,
+    ClassCommons, ClassConstant, ClassConstantValue, ClassMethod, ClassSignal, Constructor, Enum,
+    Enumerator, EnumeratorValue, ExtensionApi, FnDirection, FnParam, FnQualifier, FnReturn,
+    FunctionCommon, GodotApiVersion, ModName, NativeStructure, Operator, Singleton, TyName,
+    UtilityFunction,
 };
 use crate::models::json::{
     JsonBuiltinClass, JsonBuiltinMethod, JsonBuiltinSizes, JsonClass, JsonClassConstant,
     JsonClassMethod, JsonConstructor, JsonEnum, JsonEnumConstant, JsonExtensionApi, JsonHeader,
-    JsonMethodReturn, JsonNativeStructure, JsonOperator, JsonSingleton, JsonUtilityFunction,
+    JsonMethodReturn, JsonNativeStructure, JsonOperator, JsonSignal, JsonSingleton,
+    JsonUtilityFunction,
 };
 use crate::util::{get_api_level, ident, option_as_slice};
 use crate::{conv, special_cases};
@@ -113,6 +115,14 @@ impl Class {
             })
             .collect();
 
+        let signals = option_as_slice(&json.signals)
+            .iter()
+            .filter_map(|s| {
+                let surrounding_class = &ty_name;
+                ClassSignal::from_json(s, surrounding_class, ctx)
+            })
+            .collect();
+
         Some(Self {
             common: ClassCommons {
                 name: ty_name,
@@ -126,6 +136,7 @@ impl Class {
             constants,
             enums,
             methods,
+            signals,
         })
     }
 }
@@ -458,7 +469,6 @@ impl ClassMethod {
         }
 
         let is_private = special_cases::is_method_private(class_name, &method.name);
-
         let godot_method_name = method.name.clone();
 
         let qualifier = {
@@ -513,6 +523,24 @@ impl ClassMethod {
     }
 }
 
+impl ClassSignal {
+    pub fn from_json(
+        json_signal: &JsonSignal,
+        surrounding_class: &TyName,
+        ctx: &mut Context,
+    ) -> Option<Self> {
+        if special_cases::is_signal_deleted(surrounding_class, json_signal) {
+            return None;
+        }
+
+        Some(Self {
+            name: json_signal.name.clone(),
+            parameters: FnParam::new_range(&json_signal.arguments, ctx),
+            surrounding_class: surrounding_class.clone(),
+        })
+    }
+}
+
 impl UtilityFunction {
     pub fn from_json(function: &JsonUtilityFunction, ctx: &mut Context) -> Option<Self> {
         if special_cases::is_utility_function_deleted(function, ctx) {
@@ -559,7 +587,8 @@ impl UtilityFunction {
 impl Enum {
     pub fn from_json(json_enum: &JsonEnum, surrounding_class: Option<&TyName>) -> Self {
         let godot_name = &json_enum.name;
-        let is_bitfield = json_enum.is_bitfield;
+        let is_bitfield = special_cases::is_enum_bitfield(surrounding_class, godot_name)
+            .unwrap_or(json_enum.is_bitfield);
         let is_private = special_cases::is_enum_private(surrounding_class, godot_name);
         let is_exhaustive = special_cases::is_enum_exhaustive(surrounding_class, godot_name);
 

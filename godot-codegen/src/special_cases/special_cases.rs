@@ -21,15 +21,17 @@
 
 // NOTE: the methods are generally implemented on Godot types (e.g. AABB, not Aabb)
 
+// This file is deliberately private -- all checks must go through `special_cases`.
+
 #![allow(clippy::match_like_matches_macro)] // if there is only one rule
 
 use crate::conv::to_enum_type_uncached;
 use crate::models::domain::{Enum, RustTy, TyName};
-use crate::models::json::{JsonBuiltinMethod, JsonClassMethod, JsonUtilityFunction};
+use crate::models::json::{JsonBuiltinMethod, JsonClassMethod, JsonSignal, JsonUtilityFunction};
 use crate::special_cases::codegen_special_cases;
+use crate::util::option_as_slice;
 use crate::Context;
 use proc_macro2::Ident;
-// Deliberately private -- all checks must go through `special_cases`.
 
 #[rustfmt::skip]
 pub fn is_class_method_deleted(class_name: &TyName, method: &JsonClassMethod, ctx: &mut Context) -> bool {
@@ -62,7 +64,7 @@ pub fn is_class_method_deleted(class_name: &TyName, method: &JsonClassMethod, ct
         | ("VisualShaderNodeComment", "set_description")
         | ("VisualShaderNodeComment", "get_description")
         => true,
-        
+
         // Workaround for methods unexposed in Release mode, see https://github.com/godotengine/godot/pull/100317
         // and https://github.com/godotengine/godot/pull/100328.
         #[cfg(not(debug_assertions))]
@@ -87,6 +89,11 @@ pub fn is_class_method_deleted(class_name: &TyName, method: &JsonClassMethod, ct
 pub fn is_class_deleted(class_name: &TyName) -> bool {
     codegen_special_cases::is_class_excluded(&class_name.godot_ty)
         || is_godot_type_deleted(&class_name.godot_ty)
+}
+
+/// Native-struct types excluded in minimal codegen, because they hold codegen-excluded classes as fields.
+pub fn is_native_struct_excluded(ty: &str) -> bool {
+    codegen_special_cases::is_native_struct_excluded(ty)
 }
 
 pub fn is_godot_type_deleted(godot_ty: &str) -> bool {
@@ -141,12 +148,15 @@ pub fn is_godot_type_deleted(godot_ty: &str) -> bool {
         | "MovieWriterPNGWAV"
         | "ResourceFormatImporterSaver"
         => true,
-        // Previously loaded lazily; in 4.2 it loads at the Scene level. See: https://github.com/godotengine/godot/pull/81305
+
+        // Previously loaded lazily; in 4.2 it loads at the Scene level: https://github.com/godotengine/godot/pull/81305
         | "ThemeDB"
         => cfg!(before_api = "4.2"),
-        // reintroduced in 4.3. See: https://github.com/godotengine/godot/pull/80214
+
+        // Reintroduced in 4.3: https://github.com/godotengine/godot/pull/80214
         | "UniformSetCacheRD"
         => cfg!(before_api = "4.3"),
+
         _ => false
     }
 }
@@ -528,6 +538,14 @@ pub fn is_builtin_method_deleted(_class_name: &TyName, method: &JsonBuiltinMetho
     codegen_special_cases::is_builtin_method_excluded(method)
 }
 
+/// True if signal is absent from codegen (only when surrounding class is excluded).
+pub fn is_signal_deleted(_class_name: &TyName, signal: &JsonSignal) -> bool {
+    // If any argument type (a class) is excluded.
+    option_as_slice(&signal.arguments)
+        .iter()
+        .any(|arg| codegen_special_cases::is_class_excluded(&arg.type_))
+}
+
 /// True if builtin type is excluded (`NIL` or scalars)
 pub fn is_builtin_type_deleted(class_name: &TyName) -> bool {
     let name = class_name.godot_ty.as_str();
@@ -832,9 +850,9 @@ pub fn is_enum_private(class_name: Option<&TyName>, enum_name: &str) -> bool {
 }
 
 /// Certain enums that are extremely unlikely to get new identifiers in the future.
-/// 
+///
 /// `class_name` = None for global enums.
-/// 
+///
 /// Very conservative, only includes a few enums. Even `VariantType` was extended over time.
 /// Also does not work for any enums containing duplicate ordinals.
 #[rustfmt::skip]
@@ -855,12 +873,32 @@ pub fn is_enum_exhaustive(class_name: Option<&TyName>, enum_name: &str) -> bool 
     }
 }
 
+/// Overrides Godot's enum/bitfield status.
+/// * `Some(true)` -> bitfield
+/// * `Some(false)` -> enum
+/// * `None` -> keep default
+#[rustfmt::skip]
+pub fn is_enum_bitfield(class_name: Option<&TyName>, enum_name: &str) -> Option<bool> {
+    let class_name = class_name.map(|c| c.godot_ty.as_str());
+    match (class_name, enum_name) {
+        | (Some("Object"), "ConnectFlags")
+
+        => Some(true),
+        _ => None
+    }
+}
+
 /// Whether an enum can be combined with another enum (return value) for bitmasking purposes.
 ///
 /// If multiple masks are ever necessary, this can be extended to return a slice instead of Option.
 ///
 /// If a mapping is found, returns the corresponding `RustTy`.
 pub fn as_enum_bitmaskable(enum_: &Enum) -> Option<RustTy> {
+    if enum_.is_bitfield {
+        // Only enums need this treatment.
+        return None;
+    }
+
     let class_name = enum_.surrounding_class.as_ref();
     let class_name_str = class_name.map(|ty| ty.godot_ty.as_str());
     let enum_name = enum_.godot_name.as_str();

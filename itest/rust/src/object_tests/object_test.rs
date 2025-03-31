@@ -5,13 +5,15 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+// Needed for Clippy to accept #[cfg(all())]
+#![allow(clippy::non_minimal_cfg)]
+
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use godot::builtin::{GString, StringName, Variant, Vector3};
 use godot::classes::{
-    file_access, Area2D, Camera3D, Engine, FileAccess, IRefCounted, Node, Node3D, Object,
-    RefCounted,
+    file_access, Engine, FileAccess, IRefCounted, Node, Node2D, Node3D, Object, RefCounted,
 };
 #[allow(deprecated)]
 use godot::global::instance_from_id;
@@ -23,7 +25,7 @@ use godot::sys::{self, interface_fn, GodotFfi};
 use crate::framework::{expect_panic, itest, TestContext};
 
 // TODO:
-// * make sure that ptrcalls are used when possible (ie. when type info available; maybe GDScript integration test)
+// * make sure that ptrcalls are used when possible (i.e. when type info available; maybe GDScript integration test)
 // * Deref impl for user-defined types
 
 #[itest]
@@ -511,10 +513,10 @@ fn check_convert_variant_refcount(obj: Gd<RefCounted>) {
 fn object_engine_convert_variant_nil() {
     let nil = Variant::nil();
 
-    Gd::<Area2D>::try_from_variant(&nil).expect_err("`nil` should not convert to `Gd<Area2D>`");
+    Gd::<Node2D>::try_from_variant(&nil).expect_err("`nil` should not convert to `Gd<Node2D>`");
 
     expect_panic("from_variant(&nil)", || {
-        Gd::<Area2D>::from_variant(&nil);
+        Gd::<Node2D>::from_variant(&nil);
     });
 }
 
@@ -523,13 +525,34 @@ fn object_engine_convert_variant_error() {
     let refc = RefCounted::new_gd();
     let variant = refc.to_variant();
 
-    let err = Gd::<Area2D>::try_from_variant(&variant)
-        .expect_err("`Gd<RefCounted>` should not convert to `Gd<Area2D>`");
+    let err = Gd::<Node2D>::try_from_variant(&variant)
+        .expect_err("`Gd<RefCounted>` should not convert to `Gd<Node2D>`");
 
     assert_eq!(
         err.to_string(),
-        format!("cannot convert to class Area2D: {refc:?}")
+        format!("cannot convert to class Node2D: {refc:?}")
     );
+}
+
+#[itest]
+fn object_convert_variant_option() {
+    let refc = RefCounted::new_gd();
+    let variant = refc.to_variant();
+
+    // Variant -> Option<Gd>.
+    let gd = Option::<Gd<RefCounted>>::from_variant(&variant);
+    assert_eq!(gd, Some(refc.clone()));
+
+    let nil = Variant::nil();
+    let gd = Option::<Gd<RefCounted>>::from_variant(&nil);
+    assert_eq!(gd, None);
+
+    // Option<Gd> -> Variant.
+    let back = Some(refc).to_variant();
+    assert_eq!(back, variant);
+
+    let back = None::<Gd<RefCounted>>.to_variant();
+    assert_eq!(back, Variant::nil());
 }
 
 #[itest]
@@ -681,9 +704,9 @@ fn object_engine_bad_downcast() {
 
 #[itest]
 fn object_engine_accept_polymorphic() {
-    let mut node = Camera3D::new_alloc();
+    let mut node = Node3D::new_alloc();
     let expected_name = StringName::from("Node name");
-    let expected_class = GString::from("Camera3D");
+    let expected_class = GString::from("Node3D");
 
     node.set_name(expected_name.arg());
 
@@ -889,7 +912,7 @@ pub(super) struct ObjPayload {}
 
 #[godot_api]
 impl ObjPayload {
-    #[signal]
+    #[signal(__no_builder)]
     fn do_use();
 
     #[func]
@@ -1090,3 +1113,21 @@ fn double_use_reference() {
     double_use.free();
     emitter.free();
 }
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------
+
+// Test that one class can be declared multiple times (using #[cfg]) without conflicts
+
+#[derive(GodotClass)]
+#[class(init, base=Object)]
+struct MultipleStructsCfg {}
+
+#[derive(GodotClass)]
+#[class(init, base=Object)]
+#[cfg(any())]
+struct MultipleStructsCfg {}
+
+#[cfg(any())]
+#[derive(GodotClass)]
+#[class(init, base=Object)]
+struct MultipleStructsCfg {}

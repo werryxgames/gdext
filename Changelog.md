@@ -10,8 +10,79 @@ Cutting-edge API docs of the `master` branch are available [here](https://godot-
 
 ## Quick navigation
 
-- [v0.2.0](#v020), [v0.2.1](#v021), [v0.2.2](#v022)
+- [v0.2.0](#v020), [v0.2.1](#v021), [v0.2.2](#v022), [v0.2.3](#v023), [v0.2.4](#v024)
 - [v0.1.1](#v011), [v0.1.2](#v012), [v0.1.3](#v013)
+
+
+## [v0.2.4](https://docs.rs/godot/0.2.4)
+
+_24 February 2025_
+
+### 🌻 Features
+
+- Support additional doc comment markdown ([#1017](https://github.com/godot-rust/gdext/pull/1017))
+- Provide safe way for implementing `IScriptExtension::instance_has` ([#1013](https://github.com/godot-rust/gdext/pull/1013))
+- Global main thread ID ([#1045](https://github.com/godot-rust/gdext/pull/1045))
+- Add `validate_property` virtual func ([#1030](https://github.com/godot-rust/gdext/pull/1030))
+
+### 📈 Performance
+
+- Speed up creating and extending packed arrays from iterators up to 63× ([#1023](https://github.com/godot-rust/gdext/pull/1023))
+
+### 🧹 Quality of life
+
+- Test generation of proc-macro code via declarative macro ([#1008](https://github.com/godot-rust/gdext/pull/1008))
+- Test: support switching API versions in check.sh ([#1016](https://github.com/godot-rust/gdext/pull/1016))
+- Support `Variant::object_id()` for Godot <4.4; add `object_id_unchecked()` ([#1034](https://github.com/godot-rust/gdext/pull/1034))
+- Rename `Basis` + `Quaternion` methods, closer to Godot ([#1035](https://github.com/godot-rust/gdext/pull/1035))
+- Compare scripts via object_id ([#1036](https://github.com/godot-rust/gdext/pull/1036))
+- Add Godot 4.3 to minimal CI ([#1044](https://github.com/godot-rust/gdext/pull/1044))
+- Add .uid files for GDScript + GDExtension resources; update script cache ([#1050](https://github.com/godot-rust/gdext/pull/1050))
+- Add `#[allow(...)]` directives to macro-generated entries ([#1049](https://github.com/godot-rust/gdext/pull/1049))
+- Clippy: disable excessive operator-precedence lint ([#1055](https://github.com/godot-rust/gdext/pull/1055))
+
+### 🛠️ Bugfixes
+
+- Fix `Variant` -> `Gd` conversions not taking into account dead objects ([#1033](https://github.com/godot-rust/gdext/pull/1033))
+- Fix `DynGd<T,D>` export, implement proper export for `Array<DynGd<T,D>>` ([#1056](https://github.com/godot-rust/gdext/pull/1056))
+- In `#[var]s`, handle renamed `#[func]`s ([#1019](https://github.com/godot-rust/gdext/pull/1019))
+- 🌊 `#[signal]`: validate that there is no function body ([#1032](https://github.com/godot-rust/gdext/pull/1032))
+- Disambiguate virtual method calls ([#1020](https://github.com/godot-rust/gdext/pull/1020))
+- Parse doc strings with litrs ([#1015](https://github.com/godot-rust/gdext/pull/1015))
+- Register-docs: don't duplicate brief in description ([#1053](https://github.com/godot-rust/gdext/pull/1053))
+- Move some compile-time validations from godot to godot-ffi ([#1058](https://github.com/godot-rust/gdext/pull/1058))
+- Clippy: fix "looks like a formatting argument but it is not part of a formatting macro" ([#1041](https://github.com/godot-rust/gdext/pull/1041))
+
+
+## [v0.2.3](https://docs.rs/godot/0.2.3)
+
+_30 January 2025_
+
+### 🌻 Features
+
+- Map `Vector2.Axis` and `Vector2i.Axis` to `Vector2Axis` enum ([#1012](https://github.com/godot-rust/gdext/pull/1012))
+- Implement `Var` and `Export` for `DynGd<T, D>` ([#998](https://github.com/godot-rust/gdext/pull/998))
+- Support associated types in `#[godot_dyn]` ([#1022](https://github.com/godot-rust/gdext/pull/1022))
+- Add `Aabb::intersect_ray()` ([#1001](https://github.com/godot-rust/gdext/pull/1001))
+- FFI: compatibility layer for virtual methods ([#991](https://github.com/godot-rust/gdext/pull/991), [#1007](https://github.com/godot-rust/gdext/pull/1007))
+- FFI: postinit create, icon paths ([#991](https://github.com/godot-rust/gdext/pull/991))
+
+### 🧹 Quality of life
+
+- Follow clippy 1.84; limit `NodePath::subpath()` polyfill again ([#1010](https://github.com/godot-rust/gdext/pull/1010))
+- Remove dead binding code regarding Godot 4.0 ([#1014](https://github.com/godot-rust/gdext/pull/1014))
+- API consistency for bounding boxes ([#1001](https://github.com/godot-rust/gdext/pull/1001))
+- Document and refactor `PluginItem` related stuff ([#1003](https://github.com/godot-rust/gdext/pull/1003))
+
+### 🛠️ Bugfixes
+
+- Fix nightly compiler warnings about `#[cfg(before_api = "4.3")]` in the generated `#[godot_api]` impl ([#995](https://github.com/godot-rust/gdext/pull/995))
+- Fix `#[derive(Var)]` generating incorrect `hint_string` for enums ([#1011](https://github.com/godot-rust/gdext/pull/1011))
+
+### 📚 Documentation
+
+- Document + test limitations of `Callable::from_local_static()` ([#1004](https://github.com/godot-rust/gdext/pull/1004))
+- Document builtin API design ([#999](https://github.com/godot-rust/gdext/pull/999))
 
 
 ## [v0.2.2](https://docs.rs/godot/0.2.2)
@@ -118,6 +189,12 @@ See [devlog article](https://godot-rust.github.io/dev/november-2024-update) for 
   - Vector conversion functions ([#824](https://github.com/godot-rust/gdext/pull/824))
   - Add Mul operator for Quaternion + Vector3 ([#894](https://github.com/godot-rust/gdext/pull/894))
 
+### 📈 Performance
+
+- `RawGd`: cache pointer to internal storage ([#831](https://github.com/godot-rust/gdext/pull/831))
+- `ClassName` now dynamic and faster ([#834](https://github.com/godot-rust/gdext/pull/834))
+- Pass-by-ref for non-`Copy` builtins (backend) ([#906](https://github.com/godot-rust/gdext/pull/906))
+
 ### 🧹 Quality of life
 
 - Renames and removals
@@ -182,12 +259,6 @@ See [devlog article](https://godot-rust.github.io/dev/november-2024-update) for 
   - Codegen-rustfmt: use 2021 edition ([#937](https://github.com/godot-rust/gdext/pull/937))
 - Math
   - `Vecor3::sign()` gives incorrect results due to `i32` conversion ([#865](https://github.com/godot-rust/gdext/pull/865))
-
-### 📈 Performance
-
-- `RawGd`: cache pointer to internal storage ([#831](https://github.com/godot-rust/gdext/pull/831))
-- `ClassName` now dynamic and faster ([#834](https://github.com/godot-rust/gdext/pull/834))
-- Pass-by-ref for non-`Copy` builtins (backend) ([#906](https://github.com/godot-rust/gdext/pull/906))
 
 ### 📚 Documentation
 

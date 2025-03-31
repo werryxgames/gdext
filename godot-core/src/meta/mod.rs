@@ -49,9 +49,10 @@ mod class_name;
 mod godot_convert;
 mod method_info;
 mod property_info;
-mod sealed;
 mod signature;
 mod traits;
+
+pub(crate) mod sealed;
 
 pub mod error;
 
@@ -59,6 +60,9 @@ pub use args::*;
 pub use class_name::ClassName;
 pub use godot_convert::{FromGodot, GodotConvert, ToGodot};
 pub use traits::{ArrayElement, GodotType, PackedArrayElement};
+
+#[cfg(since_api = "4.2")]
+pub use crate::registry::signal::variadic::ParamTuple;
 
 pub(crate) use array_type_info::ArrayTypeInfo;
 pub(crate) use traits::{

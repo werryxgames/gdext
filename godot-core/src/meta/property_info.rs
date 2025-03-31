@@ -10,8 +10,10 @@ use crate::global::{PropertyHint, PropertyUsageFlags};
 use crate::meta::{
     element_godot_type_name, ArrayElement, ClassName, GodotType, PackedArrayElement,
 };
+use crate::obj::{bounds, Bounds, EngineBitfield, EngineEnum, GodotClass};
+use crate::registry::class::get_dyn_property_hint_string;
 use crate::registry::property::{Export, Var};
-use crate::sys;
+use crate::{classes, sys};
 use godot_ffi::VariantType;
 
 /// Describes a property in Godot.
@@ -194,6 +196,52 @@ impl PropertyInfo {
             let _hint_string = GString::from_owned_string_sys(info.hint_string);
         }
     }
+
+    /// Moves its values into given `GDExtensionPropertyInfo`, dropping previous values if necessary.
+    ///
+    /// # Safety
+    ///
+    /// * `property_info_ptr` must be valid.
+    ///
+    pub(crate) unsafe fn move_into_property_info_ptr(
+        self,
+        property_info_ptr: *mut sys::GDExtensionPropertyInfo,
+    ) {
+        let ptr = &mut *property_info_ptr;
+
+        ptr.usage = u32::try_from(self.usage.ord()).expect("usage.ord()");
+        ptr.hint = u32::try_from(self.hint_info.hint.ord()).expect("hint.ord()");
+        ptr.type_ = self.variant_type.sys();
+
+        *StringName::borrow_string_sys_mut(ptr.name) = self.property_name;
+        *GString::borrow_string_sys_mut(ptr.hint_string) = self.hint_info.hint_string;
+
+        if self.class_name != ClassName::none() {
+            *StringName::borrow_string_sys_mut(ptr.class_name) = self.class_name.to_string_name();
+        }
+    }
+
+    /// Creates copy of given `sys::GDExtensionPropertyInfo`.
+    ///
+    /// # Safety
+    ///
+    /// * `property_info_ptr` must be valid.
+    pub(crate) unsafe fn new_from_sys(
+        property_info_ptr: *mut sys::GDExtensionPropertyInfo,
+    ) -> Self {
+        let ptr = *property_info_ptr;
+
+        Self {
+            variant_type: VariantType::from_sys(ptr.type_),
+            class_name: ClassName::none(),
+            property_name: StringName::new_from_string_sys(ptr.name),
+            hint_info: PropertyHintInfo {
+                hint: PropertyHint::from_ord(ptr.hint.to_owned() as i32),
+                hint_string: GString::new_from_string_sys(ptr.hint_string),
+            },
+            usage: PropertyUsageFlags::from_ord(ptr.usage as u64),
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------------------------------------------------------------------------
@@ -254,5 +302,43 @@ impl PropertyHintInfo {
             hint: PropertyHint::TYPE_STRING,
             hint_string: GString::from(T::element_type_string()),
         }
+    }
+
+    pub fn export_gd<T>() -> Self
+    where
+        T: GodotClass + Bounds<Exportable = bounds::Yes>,
+    {
+        let hint = if T::inherits::<classes::Resource>() {
+            PropertyHint::RESOURCE_TYPE
+        } else if T::inherits::<classes::Node>() {
+            PropertyHint::NODE_TYPE
+        } else {
+            unreachable!("classes not inheriting from Resource or Node should not be exportable")
+        };
+
+        // Godot does this by default too; the hint is needed when the class is a resource/node,
+        // but doesn't seem to make a difference otherwise.
+        let hint_string = T::class_name().to_gstring();
+
+        Self { hint, hint_string }
+    }
+
+    pub fn export_dyn_gd<T, D>() -> Self
+    where
+        T: GodotClass + Bounds<Exportable = bounds::Yes>,
+        D: ?Sized + 'static,
+    {
+        PropertyHintInfo {
+            hint_string: GString::from(get_dyn_property_hint_string::<T, D>()),
+            ..PropertyHintInfo::export_gd::<T>()
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn object_as_node_class<T>() -> Option<ClassName>
+    where
+        T: GodotClass + Bounds<Exportable = bounds::Yes>,
+    {
+        T::inherits::<classes::Node>().then(|| T::class_name())
     }
 }

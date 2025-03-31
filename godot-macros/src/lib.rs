@@ -15,6 +15,7 @@ mod class;
 mod derive;
 #[cfg(all(feature = "register-docs", since_api = "4.3"))]
 mod docs;
+mod ffi_macros;
 mod gdextension;
 mod itest;
 mod util;
@@ -40,7 +41,6 @@ use crate::util::{bail, ident, KvParser};
 /// - [Properties and exports](#properties-and-exports)
 ///    - [Property registration](#property-registration)
 ///    - [Property exports](#property-exports)
-/// - [Signals](#signals)
 /// - [Further class customization](#further-class-customization)
 ///    - [Running code in the editor](#running-code-in-the-editor)
 ///    - [Editor plugins](#editor-plugins)
@@ -327,27 +327,6 @@ use crate::util::{bail, ident, KvParser};
 /// }
 /// ```
 ///
-/// # Signals
-///
-/// The `#[signal]` attribute is quite limited at the moment. The functions it decorates (the signals) can accept parameters.
-/// It will be fundamentally reworked.
-///
-/// ```no_run
-/// # use godot::prelude::*;
-/// #[derive(GodotClass)]
-/// # #[class(init)]
-/// struct MyClass {}
-///
-/// #[godot_api]
-/// impl MyClass {
-///     #[signal]
-///     fn some_signal();
-///
-///     #[signal]
-///     fn some_signal_with_parameters(my_parameter: Gd<Node>);
-/// }
-/// ```
-///
 /// # Further class customization
 ///
 /// ## Running code in the editor
@@ -529,7 +508,8 @@ pub fn derive_godot_class(input: TokenStream) -> TokenStream {
 ///   - [Associated functions and methods](#associated-functions-and-methods)
 ///   - [Virtual methods](#virtual-methods)
 ///   - [RPC attributes](#rpc-attributes)
-/// - [Constants and signals](#signals)
+/// - [Signals](#signals)
+/// - [Constants](#constants)
 /// - [Multiple inherent `impl` blocks](#multiple-inherent-impl-blocks)
 ///
 /// # Constructors
@@ -770,7 +750,38 @@ pub fn derive_godot_class(input: TokenStream) -> TokenStream {
 /// [`TransferMode`]: ../classes/multiplayer_peer/struct.TransferMode.html
 /// [`RpcConfig`]: ../register/struct.RpcConfig.html
 ///
-/// # Constants and signals
+///
+/// # Signals
+///
+/// The `#[signal]` attribute declares a Godot signal, which can accept parameters, but not return any value.
+/// The procedural macro generates a type-safe API that allows you to connect and emit the signal from Rust.
+///
+/// ```no_run
+/// # use godot::prelude::*;
+/// #[derive(GodotClass)]
+/// #[class(init)]
+/// struct MyClass {
+///     base: Base<RefCounted>, // necessary for #[signal].
+/// }
+///
+/// #[godot_api]
+/// impl MyClass {
+///     #[signal]
+///     fn some_signal(my_parameter: Gd<Node>);
+/// }
+/// ```
+///
+/// The above implements the [`WithSignals`] trait for `MyClass`, which provides the `signals()` method. Through that
+/// method, you can access all declared signals in `self.signals().some_signal()` or `gd.signals().some_signal()`. The returned object is
+/// of type [`TypedSignal`], which provides further APIs for emitting and connecting, among others.
+///
+/// A detailed explanation with examples is available in the [book chapter _Registering signals_](https://godot-rust.github.io/book/register/signals.html).
+///
+/// [`WithSignals`]: ../obj/trait.WithSignals.html
+/// [`TypedSignal`]: ../register/struct.TypedSignal.html
+///
+///
+/// # Constants
 ///
 /// Please refer to [the book](https://godot-rust.github.io/book/register/constants.html).
 ///
@@ -1038,9 +1049,21 @@ pub fn gdextension(meta: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 // ----------------------------------------------------------------------------------------------------------------------------------------------
+// Used by godot-ffi
+
+/// Creates an initialization block for Wasm.
+#[proc_macro]
+#[cfg(feature = "experimental-wasm")]
+pub fn wasm_declare_init_fn(input: TokenStream) -> TokenStream {
+    translate_functional(input, ffi_macros::wasm_declare_init_fn)
+}
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------
+// Implementation
 
 type ParseResult<T> = Result<T, venial::Error>;
 
+/// For `#[derive(...)]` derive macros.
 fn translate<F>(input: TokenStream, transform: F) -> TokenStream
 where
     F: FnOnce(venial::Item) -> ParseResult<TokenStream2>,
@@ -1054,6 +1077,7 @@ where
     TokenStream::from(result2)
 }
 
+/// For `#[proc_macro_attribute]` procedural macros.
 fn translate_meta<F>(
     self_name: &str,
     meta: TokenStream,
@@ -1070,6 +1094,18 @@ where
     let result2 = util::venial_parse_meta(&meta2, self_name, &input2)
         .and_then(transform)
         .unwrap_or_else(|e| e.to_compile_error());
+
+    TokenStream::from(result2)
+}
+
+/// For `#[proc_macro]` function-style macros.
+#[cfg(feature = "experimental-wasm")]
+fn translate_functional<F>(input: TokenStream, transform: F) -> TokenStream
+where
+    F: FnOnce(TokenStream2) -> ParseResult<TokenStream2>,
+{
+    let input2 = TokenStream2::from(input);
+    let result2 = transform(input2).unwrap_or_else(|e| e.to_compile_error());
 
     TokenStream::from(result2)
 }

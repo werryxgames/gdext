@@ -9,21 +9,20 @@ use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::ops::{Deref, DerefMut};
 
 use godot_ffi as sys;
-use sys::{static_assert_eq_size_align, SysPtr as _, VariantType};
+use sys::{static_assert_eq_size_align, SysPtr as _};
 
 use crate::builtin::{Callable, NodePath, StringName, Variant};
-use crate::global::PropertyHint;
 use crate::meta::error::{ConvertError, FromFfiError};
 use crate::meta::{
     ArrayElement, AsArg, CallContext, ClassName, CowArg, FromGodot, GodotConvert, GodotType,
     ParamType, PropertyHintInfo, RefArg, ToGodot,
 };
 use crate::obj::{
-    bounds, cap, Bounds, DynGd, EngineEnum, GdDerefTarget, GdMut, GdRef, GodotClass, Inherits,
-    InstanceId, RawGd,
+    bounds, cap, Bounds, DynGd, GdDerefTarget, GdMut, GdRef, GodotClass, Inherits, InstanceId,
+    OnEditor, RawGd, WithSignals,
 };
 use crate::private::callbacks;
-use crate::registry::property::{Export, Var};
+use crate::registry::property::{object_export_element_type_string, Export, Var};
 use crate::{classes, out};
 
 /// Smart pointer to objects owned by the Godot engine.
@@ -336,6 +335,11 @@ impl<T: GodotClass> Gd<T> {
     pub(crate) fn upcast_object(self) -> Gd<classes::Object> {
         self.owned_cast()
             .expect("Upcast to Object failed. This is a bug; please report it.")
+    }
+
+    /// Equivalent to [`upcast_mut::<Object>()`][Self::upcast_mut], but without bounds.
+    pub(crate) fn upcast_object_mut(&mut self) -> &mut classes::Object {
+        self.raw.as_object_mut()
     }
 
     /// **Upcast shared-ref:** access this object as a shared reference to a base class.
@@ -711,6 +715,28 @@ where
     }
 }
 
+impl<T> Gd<T>
+where
+    T: WithSignals,
+{
+    /// Access user-defined signals of this object.
+    ///
+    /// For classes that have at least one `#[signal]` defined, returns a collection of signal names. Each returned signal has a specialized
+    /// API for connecting and emitting signals in a type-safe way. This method is the equivalent of [`WithUserSignals::signals()`], but when
+    /// called externally (not from `self`). Furthermore, this is also available for engine classes, not just user-defined ones.
+    ///
+    /// When you are within the `impl` of a class, use `self.signals()` directly instead.
+    ///
+    /// If you haven't already, read the [book chapter about signals](https://godot-rust.github.io/book/register/signals.html) for a
+    /// walkthrough.
+    ///
+    /// [`WithUserSignals::signals()`]: crate::obj::WithUserSignals::signals()
+    #[cfg(since_api = "4.2")]
+    pub fn signals(&mut self) -> T::SignalCollection<'_> {
+        T::__signals_from_external(self)
+    }
+}
+
 // ----------------------------------------------------------------------------------------------------------------------------------------------
 // Trait impls
 
@@ -806,27 +832,7 @@ impl<T: GodotClass> GodotType for Gd<T> {
 impl<T: GodotClass> ArrayElement for Gd<T> {
     fn element_type_string() -> String {
         // See also impl Export for Gd<T>.
-
-        let hint = if T::inherits::<classes::Resource>() {
-            Some(PropertyHint::RESOURCE_TYPE)
-        } else if T::inherits::<classes::Node>() {
-            Some(PropertyHint::NODE_TYPE)
-        } else {
-            None
-        };
-
-        // Exportable classes (Resource/Node based) include the {RESOURCE|NODE}_TYPE hint + the class name.
-        if let Some(export_hint) = hint {
-            format!(
-                "{variant}/{hint}:{class}",
-                variant = VariantType::OBJECT.ord(),
-                hint = export_hint.ord(),
-                class = T::class_name()
-            )
-        } else {
-            // Previous impl: format!("{variant}:", variant = VariantType::OBJECT.ord())
-            unreachable!("element_type_string() should only be invoked for exportable classes")
-        }
+        object_export_element_type_string::<T>(T::class_name())
     }
 }
 
@@ -905,8 +911,6 @@ impl<T: GodotClass> Clone for Gd<T> {
     }
 }
 
-// TODO: Do we even want to implement `Var` and `Export` for `Gd<T>`? You basically always want to use `Option<Gd<T>>` because the editor
-// may otherwise try to set the object to a null value.
 impl<T: GodotClass> Var for Gd<T> {
     fn get_property(&self) -> Self::Via {
         self.to_godot()
@@ -917,33 +921,62 @@ impl<T: GodotClass> Var for Gd<T> {
     }
 }
 
-impl<T> Export for Gd<T>
+impl<T> Export for Option<Gd<T>>
 where
     T: GodotClass + Bounds<Exportable = bounds::Yes>,
+    Option<Gd<T>>: Var,
 {
     fn export_hint() -> PropertyHintInfo {
-        let hint = if T::inherits::<classes::Resource>() {
-            PropertyHint::RESOURCE_TYPE
-        } else if T::inherits::<classes::Node>() {
-            PropertyHint::NODE_TYPE
-        } else {
-            unreachable!("classes not inheriting from Resource or Node should not be exportable")
-        };
-
-        // Godot does this by default too; the hint is needed when the class is a resource/node,
-        // but doesn't seem to make a difference otherwise.
-        let hint_string = T::class_name().to_gstring();
-
-        PropertyHintInfo { hint, hint_string }
+        PropertyHintInfo::export_gd::<T>()
     }
 
     #[doc(hidden)]
     fn as_node_class() -> Option<ClassName> {
-        T::inherits::<classes::Node>().then(|| T::class_name())
+        PropertyHintInfo::object_as_node_class::<T>()
     }
 }
 
-// Trait impls Property, Export and TypeStringHint for Option<Gd<T>> are covered by blanket impl for Option<T>
+impl<T: GodotClass> Default for OnEditor<Gd<T>> {
+    fn default() -> Self {
+        OnEditor::gd_invalid()
+    }
+}
+
+impl<T> GodotConvert for OnEditor<Gd<T>>
+where
+    T: GodotClass,
+    Option<<Gd<T> as GodotConvert>::Via>: GodotType,
+{
+    type Via = Option<<Gd<T> as GodotConvert>::Via>;
+}
+
+impl<T> Var for OnEditor<Gd<T>>
+where
+    T: GodotClass,
+{
+    fn get_property(&self) -> Self::Via {
+        Self::get_property_inner(self)
+    }
+
+    fn set_property(&mut self, value: Self::Via) {
+        Self::set_property_inner(self, value)
+    }
+}
+
+impl<T> Export for OnEditor<Gd<T>>
+where
+    Self: Var,
+    T: GodotClass + Bounds<Exportable = bounds::Yes>,
+{
+    fn export_hint() -> PropertyHintInfo {
+        PropertyHintInfo::export_gd::<T>()
+    }
+
+    #[doc(hidden)]
+    fn as_node_class() -> Option<ClassName> {
+        PropertyHintInfo::object_as_node_class::<T>()
+    }
+}
 
 impl<T: GodotClass> PartialEq for Gd<T> {
     /// ⚠️ Returns whether two `Gd` pointers point to the same object.

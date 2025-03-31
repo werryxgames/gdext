@@ -1,8 +1,8 @@
 [package]
 name = "godot-macros"
-version = "0.2.2"
+version = "0.2.4"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.85"
 license = "MPL-2.0"
 keywords = ["gamedev", "godot", "engine", "derive", "macro"]
 categories = ["game-engines", "graphics"]
@@ -12,8 +12,9 @@ homepage = "https://godot-rust.github.io"
 
 [features]
 api-custom = ["godot-bindings/api-custom"]
-register-docs = ["dep:markdown"]
 codegen-full = ["godot/__codegen-full"]
+experimental-wasm = ["dep:libc"]
+register-docs = ["dep:markdown", "dep:litrs"]
 
 [lib]
 proc-macro = true
@@ -22,13 +23,17 @@ proc-macro = true
 # Minimum versions compatible with -Zminimal-versions
 proc-macro2 = "1.0.80" # Literal::c_string() added in 1.0.80.
 quote = "1.0.29"
-
-# Enabled by `docs`
+# Enabled by `docs`.
 markdown = { version = "=1.0.0-alpha.21", optional = true }
-venial = "0.6"
+litrs = { version = "0.4.1", optional = true }
+venial = "0.6.1"
+
+# Cannot use [target.'cfg(target_family = "wasm")'.dependencies], as proc-macro crates are always compiled for host platform, not target.
+# Thus solved via feature.
+libc = { version = "0.2.171", optional = true }
 
 [build-dependencies]
-godot-bindings = { path = "../godot-bindings", version = "=0.2.2" } # emit_godot_version_cfg
+godot-bindings = { path = "../godot-bindings", version = "=0.2.4" } # emit_godot_version_cfg
 
 # Reverse dev dependencies so doctests can use `godot::` prefix.
 [dev-dependencies]

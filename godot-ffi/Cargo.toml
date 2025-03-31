@@ -1,8 +1,8 @@
 [package]
 name = "godot-ffi"
-version = "0.2.2"
+version = "0.2.4"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.85"
 license = "MPL-2.0"
 keywords = ["gamedev", "godot", "engine", "ffi"]
 categories = ["game-engines", "graphics"]
@@ -30,23 +30,21 @@ api-4-2 = ["godot-bindings/api-4-2"]
 api-4-2-1 = ["godot-bindings/api-4-2-1"]
 api-4-2-2 = ["godot-bindings/api-4-2-2"]
 api-4-3 = ["godot-bindings/api-4-3"]
+api-4-4 = ["godot-bindings/api-4-4"]
 # ]]
 
-# TODO: get rid of paste and gensym, they are trivially implementable with proc-macros. Update cargo-deny.
-# Especially gensym which pulls in entire syn for 10 LoC. See https://github.com/regiontog/gensym/blob/master/src/lib.rs.
-# Might however require godot-ffi to depend on godot-macro, which is not ideal...
 [dependencies]
-paste = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2.153"
+libc = "0.2.171"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-gensym = "0.1.1"
+# Only needed for WASM identifier generation.
+godot-macros = { path = "../godot-macros", version = "=0.2.4", features = ["experimental-wasm"] }
 
 [build-dependencies]
-godot-bindings = { path = "../godot-bindings", version = "=0.2.2" }
-godot-codegen = { path = "../godot-codegen", version = "=0.2.2" }
+godot-bindings = { path = "../godot-bindings", version = "=0.2.4" }
+godot-codegen = { path = "../godot-codegen", version = "=0.2.4" }
 
 # https://docs.rs/about/metadata
 [package.metadata.docs.rs]

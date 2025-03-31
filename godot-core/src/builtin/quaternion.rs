@@ -107,7 +107,7 @@ impl Quaternion {
         }
     }
 
-    #[deprecated = "Moved to `Quaternion::exp()`"]
+    #[deprecated = "Renamed to `Quaternion::exp()`"]
     pub fn to_exp(self) -> Self {
         self.exp()
     }
@@ -147,9 +147,25 @@ impl Quaternion {
         }
     }
 
-    #[doc(alias = "get_euler")]
+    /// Returns the rotation of the matrix in euler angles, with the order `YXZ`.
+    ///
+    /// See [`get_euler_with()`](Self::get_euler_with) for custom angle orders.
+    pub fn get_euler(self) -> Vector3 {
+        self.get_euler_with(EulerOrder::YXZ)
+    }
+
+    /// Returns the rotation of the matrix in euler angles.
+    ///
+    /// The order of the angles are given by `order`. To use the default order `YXZ`, see [`get_euler()`](Self::get_euler).
+    ///
+    /// _Godot equivalent: `Quaternion.get_euler()`_
+    pub fn get_euler_with(self, order: EulerOrder) -> Vector3 {
+        Basis::from_quaternion(self).get_euler_with(order)
+    }
+
+    #[deprecated = "Renamed to `get_euler()` + `get_euler_with()`"]
     pub fn to_euler(self, order: EulerOrder) -> Vector3 {
-        Basis::from_quat(self).to_euler(order)
+        self.get_euler_with(order)
     }
 
     pub fn inverse(self) -> Self {
@@ -331,9 +347,7 @@ impl Mul<Vector3> for Quaternion {
 // SAFETY:
 // This type is represented as `Self` in Godot, so `*mut Self` is sound.
 unsafe impl GodotFfi for Quaternion {
-    fn variant_type() -> sys::VariantType {
-        sys::VariantType::QUATERNION
-    }
+    const VARIANT_TYPE: sys::VariantType = sys::VariantType::QUATERNION;
 
     ffi_methods! { type sys::GDExtensionTypePtr = *mut Self; .. }
 }

@@ -10,7 +10,7 @@
 
 use crate::framework::itest;
 use godot::builtin::inner::InnerColor;
-use godot::classes::{FileAccess, HttpRequest, IHttpRequest, Image};
+use godot::classes::{FileAccess, HttpRequest, IHttpRequest, RenderingServer};
 use godot::prelude::*;
 
 #[itest]
@@ -53,7 +53,8 @@ fn codegen_static_class_method() {
 
 #[itest]
 fn codegen_constants() {
-    assert_eq!(Image::MAX_WIDTH, 16777216);
+    assert_eq!(RenderingServer::CANVAS_ITEM_Z_MIN, -4096);
+    //assert_eq!(Image::MAX_WIDTH, 16777216);
     // assert_eq!(Material::RENDER_PRIORITY_MIN, -128);
 }
 
@@ -94,6 +95,12 @@ impl IHttpRequest for CodegenTest {
 
     // Test unnamed parameter in virtual function
     fn process(&mut self, _: f64) {}
+
+    // Test auto-cast to f32 parameter in virtual function
+    fn physics_process(&mut self, delta: f32) {
+        // Test it's actually f32 in the body.
+        let _use_param: f32 = delta;
+    }
 }
 
 // ----------------------------------------------------------------------------------------------------------------------------------------------
@@ -127,4 +134,59 @@ impl CodegenTest2 {
     #[cfg(since_api = "4.3")]
     #[func(virtual)]
     fn with_virtual_many_unnamed(&self, _: i32, _: GString) {}
+}
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------
+// Generation of APIs via declarative macro.
+
+macro_rules! make_class {
+    ($ClassName:ident, $BaseName:ident) => {
+        #[derive(GodotClass)]
+        #[class(no_init, base=$BaseName)]
+        pub struct $ClassName {
+            base: Base<godot::classes::$BaseName>,
+        }
+    };
+}
+
+macro_rules! make_interface_impl {
+    ($Class:ty, $Trait:path) => {
+        #[godot_api]
+        #[allow(unused)]
+        impl $Trait for $Class {
+            fn init(base: Base<Self::Base>) -> Self {
+                Self { base }
+            }
+
+            fn exit_tree(&mut self) {}
+        }
+    };
+}
+
+macro_rules! make_user_api {
+    ($Class:ty, $method:ident, $Param:ty) => {
+        #[godot_api]
+        #[allow(unused)]
+        impl $Class {
+            #[func]
+            fn $method(&self, _m: $Param) {}
+        }
+    };
+}
+
+make_class!(CodegenTest3, Node3D);
+make_interface_impl!(CodegenTest3, INode3D);
+make_user_api!(CodegenTest3, take_param, i32);
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------
+// Regression tests for ambiguous method calls: https://github.com/godot-rust/gdext/issues/858
+// Also references the above macro-generated class.
+
+#[allow(dead_code)]
+trait TraitA {
+    fn exit_tree(&mut self);
+}
+
+impl TraitA for CodegenTest3 {
+    fn exit_tree(&mut self) {}
 }

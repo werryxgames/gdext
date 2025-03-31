@@ -10,7 +10,10 @@ use crate::class::{
     make_signal_registrations, ConstDefinition, FuncDefinition, RpcAttr, RpcMode, SignalDefinition,
     SignatureInfo, TransferMode,
 };
-use crate::util::{bail, c_str, ident, require_api_version, KvParser};
+use crate::util::{
+    bail, c_str, format_funcs_collection_struct, ident, make_funcs_collection_constants,
+    replace_class_in_path, require_api_version, KvParser,
+};
 use crate::{handle_mutually_exclusive_keys, util, ParseResult};
 
 use proc_macro2::{Delimiter, Group, Ident, TokenStream};
@@ -20,7 +23,7 @@ use quote::{format_ident, quote};
 /// Attribute for user-declared function.
 enum ItemAttrType {
     Func(FuncAttr, Option<RpcAttr>),
-    Signal(venial::AttributeValue),
+    Signal(SignalAttr, venial::AttributeValue),
     Const(#[allow(dead_code)] venial::AttributeValue),
 }
 
@@ -39,7 +42,7 @@ enum AttrParseResult {
     Func(FuncAttr),
     Rpc(RpcAttr),
     FuncRpc(FuncAttr, RpcAttr),
-    Signal(venial::AttributeValue),
+    Signal(SignalAttr, venial::AttributeValue),
     Const(#[allow(dead_code)] venial::AttributeValue),
 }
 
@@ -50,7 +53,7 @@ impl AttrParseResult {
             // If only `#[rpc]` is present, we assume #[func] with default values.
             AttrParseResult::Rpc(rpc) => ItemAttrType::Func(FuncAttr::default(), Some(rpc)),
             AttrParseResult::FuncRpc(func, rpc) => ItemAttrType::Func(func, Some(rpc)),
-            AttrParseResult::Signal(signal) => ItemAttrType::Signal(signal),
+            AttrParseResult::Signal(signal, attr_val) => ItemAttrType::Signal(signal, attr_val),
             AttrParseResult::Const(constant) => ItemAttrType::Const(constant),
         }
     }
@@ -61,6 +64,11 @@ struct FuncAttr {
     pub rename: Option<String>,
     pub is_virtual: bool,
     pub has_gd_self: bool,
+}
+
+#[derive(Default)]
+struct SignalAttr {
+    pub no_builder: bool,
 }
 
 // ----------------------------------------------------------------------------------------------------------------------------------------------
@@ -75,6 +83,7 @@ pub struct InherentImplAttr {
 pub fn transform_inherent_impl(
     meta: InherentImplAttr,
     mut impl_block: venial::Impl,
+    self_path: venial::Path,
 ) -> ParseResult<TokenStream> {
     let class_name = util::validate_impl(&impl_block, None, "godot_api")?;
     let class_name_obj = util::class_name_obj(&class_name);
@@ -85,11 +94,21 @@ pub fn transform_inherent_impl(
     let consts = process_godot_constants(&mut impl_block)?;
 
     #[cfg(all(feature = "register-docs", since_api = "4.3"))]
-    let docs = crate::docs::make_inherent_impl_docs(&funcs, &consts, &signals);
+    let docs = crate::docs::document_inherent_impl(&funcs, &consts, &signals);
     #[cfg(not(all(feature = "register-docs", since_api = "4.3")))]
     let docs = quote! {};
 
-    let signal_registrations = make_signal_registrations(signals, &class_name_obj);
+    // Container struct holding names of all registered #[func]s.
+    // The struct is declared by #[derive(GodotClass)].
+    let funcs_collection = {
+        let struct_name = format_funcs_collection_struct(&class_name);
+        replace_class_in_path(self_path, struct_name)
+    };
+
+    // For each #[func] in this impl block, create one constant.
+    let func_name_constants = make_funcs_collection_constants(&funcs, &class_name);
+    let (signal_registrations, signals_collection_struct) =
+        make_signal_registrations(&signals, &class_name, &class_name_obj)?;
 
     #[cfg(feature = "codegen-full")]
     let rpc_registrations = crate::class::make_rpc_registrations_fn(&class_name, &funcs);
@@ -98,7 +117,7 @@ pub fn transform_inherent_impl(
 
     let method_registrations: Vec<TokenStream> = funcs
         .into_iter()
-        .map(|func_def| make_method_registration(&class_name, func_def))
+        .map(|func_def| make_method_registration(&class_name, func_def, None))
         .collect::<ParseResult<Vec<TokenStream>>>()?;
 
     let constant_registration = make_constant_registration(consts, &class_name, &class_name_obj)?;
@@ -153,7 +172,7 @@ pub fn transform_inherent_impl(
         };
 
         let class_registration = quote! {
-            ::godot::sys::plugin_add!(__GODOT_PLUGIN_REGISTRY in #prv; #prv::ClassPlugin::new::<#class_name>(
+            ::godot::sys::plugin_add!(#prv::__GODOT_PLUGIN_REGISTRY; #prv::ClassPlugin::new::<#class_name>(
                 #prv::PluginItem::InherentImpl(#prv::InherentImpl::new::<#class_name>(#docs))
             ));
         };
@@ -164,6 +183,10 @@ pub fn transform_inherent_impl(
             #trait_impl
             #fill_storage
             #class_registration
+            impl #funcs_collection {
+                #( #func_name_constants )*
+            }
+            #signals_collection_struct
         };
 
         Ok(result)
@@ -174,6 +197,9 @@ pub fn transform_inherent_impl(
         let result = quote! {
             #impl_block
             #fill_storage
+            impl #funcs_collection {
+                #( #func_name_constants )*
+            }
         };
 
         Ok(result)
@@ -274,23 +300,35 @@ fn process_godot_fns(
                 });
             }
 
-            ItemAttrType::Signal(ref _attr_val) => {
+            ItemAttrType::Signal(ref signal, ref _attr_val) => {
                 if is_secondary_impl {
                     return attr.bail(
-                        "#[signal] is not currently supported in secondary impl blocks",
+                        "#[signal] is currently not supported in secondary impl blocks",
                         function,
                     );
                 }
                 if function.return_ty.is_some() {
-                    return attr.bail("return types in #[signal] are not supported", function);
+                    return bail!(
+                        &function.return_ty,
+                        "#[signal] does not support return types"
+                    );
+                }
+                if function.body.is_some() {
+                    return bail!(
+                        &function.body,
+                        "#[signal] must not have a body; declare the function with a semicolon"
+                    );
                 }
 
                 let external_attributes = function.attributes.clone();
-                let sig = util::reduce_to_signature(function);
+
+                let mut fn_signature = util::reduce_to_signature(function);
+                fn_signature.vis_marker = function.vis_marker.clone();
 
                 signal_definitions.push(SignalDefinition {
-                    signature: sig,
+                    fn_signature,
                     external_attributes,
+                    has_builder: !signal.no_builder,
                 });
 
                 removed_indexes.push(index);
@@ -333,7 +371,7 @@ fn process_godot_constants(decl: &mut venial::Impl) -> ParseResult<Vec<ConstDefi
                 ItemAttrType::Func(_, _) => {
                     return bail!(constant, "#[func] and #[rpc] can only be used on functions")
                 }
-                ItemAttrType::Signal(_) => {
+                ItemAttrType::Signal(_, _) => {
                     return bail!(constant, "#[signal] can only be used on functions")
                 }
                 ItemAttrType::Const(_) => {
@@ -455,7 +493,7 @@ where
         let parsed_attr = match attr_name {
             // #[func]
             name if name == "func" => {
-                // Safe unwrap since #[func] must be present if we got to this point
+                // Safe unwrap, since #[func] must be present if we got to this point.
                 let mut parser = KvParser::parse(attributes, "func")?.unwrap();
 
                 // #[func(rename = MyClass)]
@@ -536,10 +574,28 @@ where
             }
 
             // #[signal]
-            name if name == "signal" => AttrParseResult::Signal(attr.value.clone()),
+            name if name == "signal" => {
+                // Safe unwrap, since #[signal] must be present if we got to this point.
+                let mut parser = KvParser::parse(attributes, "signal")?.unwrap();
+
+                // Private #[signal(__no_builder)]
+                let no_builder = parser.handle_alone("__no_builder")?;
+
+                parser.finish()?;
+
+                let signal_attr = SignalAttr { no_builder };
+
+                AttrParseResult::Signal(signal_attr, attr.value.clone())
+            }
 
             // #[constant]
-            name if name == "constant" => AttrParseResult::Const(attr.value.clone()),
+            name if name == "constant" => {
+                // Ensure no keys are present.
+                let parser = KvParser::parse(attributes, "constant")?.unwrap();
+                parser.finish()?;
+
+                AttrParseResult::Const(attr.value.clone())
+            }
 
             // Ignore unknown attributes.
             _ => continue,
